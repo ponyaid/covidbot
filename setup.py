@@ -1,4 +1,3 @@
-from re import template
 import telebot
 import os
 import codecs
@@ -183,9 +182,9 @@ def web_hook():
 
 
 # application entry point
-# if __name__ == '__main__':
-#     server.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8443)))
-
-
 if __name__ == '__main__':
-    bot.polling(none_stop=True, interval=0)
+    server.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8443)))
+
+
+# if __name__ == '__main__':
+#     bot.polling(none_stop=True, interval=0)
