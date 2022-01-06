@@ -3,16 +3,16 @@ import os
 import codecs
 import common.tg_analytics as tga
 
+from dotenv import load_dotenv
 from functools import wraps
 from telebot import types
 from jinja2 import Template
-from dotenv import load_dotenv
 from services.country_service import CountryService
 from services.statistics_service import StatisticsService
 from flask import Flask, request
 
 
-load_dotenv()  # take environment variables from .env.
+load_dotenv()
 
 # bot initialization
 token = os.getenv('API_BOT_TOKEN')
@@ -21,14 +21,11 @@ user_steps = {}
 known_users = []
 stats_service = StatisticsService()
 country_service = CountryService()
-
-commands = {
-    'start': 'Start using this bot',
-    'country': 'Please, write a country name',
-    'statistics': 'Statistics by users queries',
-    'help': 'Useful information about this bot',
-    'contacts': 'Developer contacts'
-}
+commands = {'start': 'Start using this bot',
+            'country': 'Please, write a country name',
+            'statistics': 'Statistics by users queries',
+            'help': 'Useful information about this bot',
+            'contacts': 'Developer contacts'}
 
 
 def get_user_step(uid):
@@ -42,7 +39,6 @@ def get_user_step(uid):
 
 # decorator for bot actions
 def send_action(action):
-    """Sends `action` while processing func command."""
 
     def decorator(func):
         @wraps(func)
@@ -53,10 +49,22 @@ def send_action(action):
     return decorator
 
 
+# decorator for save user activity
+def save_user_activity():
+
+    def decorator(func):
+        @wraps(func)
+        def command_func(message, *args, **kwargs):
+            tga.statistics(message.chat.id, message.text)
+            return func(message, *args, **kwargs)
+        return command_func
+    return decorator
+
+
 # start command handler
 @bot.message_handler(commands=['start'])
 @send_action('typing')
-# @save_user_activity()
+@save_user_activity()
 def start_command_handler(message):
     cid = message.chat.id
     markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
@@ -71,6 +79,7 @@ def start_command_handler(message):
 # country command handler
 @bot.message_handler(commands=['country'])
 @send_action('typing')
+@save_user_activity()
 def country_command_handler(message):
     cid = message.chat.id
     user_steps[cid] = 1
@@ -79,8 +88,9 @@ def country_command_handler(message):
 
 
 # geo command handler
-@bot.message_handler(commands=['location'])
+@bot.message_handler(content_types=['location'])
 @send_action('typing')
+@save_user_activity()
 def geo_command_handler(message):
     cid = message.chat.id
     geo_result = country_service.get_country_information(
@@ -94,6 +104,7 @@ def geo_command_handler(message):
 # country statistics command handler
 @bot.message_handler(func=lambda message: get_user_step(message.chat.id) == 1)
 @send_action('typing')
+@save_user_activity()
 def country_statistics_command_handler(message):
     cid = message.chat.id
     country_name = message.text.strip()
@@ -111,28 +122,17 @@ def country_statistics_command_handler(message):
 # query statistics command handler
 @bot.message_handler(commands=['statistics'])
 @send_action('typing')
+@save_user_activity()
 def statistics_command_handler(message):
     cid = message.chat.id
     bot.send_message(
         cid, stats_service.get_statistics_of_users_queries(), parse_mode='HTML')
 
 
-# help command handler
-@bot.message_handler(commands=['help'])
-@send_action('typing')
-def help_command_handler(message):
-    cid = message.chat.id
-    help_text = 'The following commands are available \n'
-    for key in commands:
-        help_text += '/' + key + ': '
-        help_text += commands[key] + '\n'
-    help_text += 'COVID_22_BOT speaks english, be careful and take care'
-    bot.send_message(cid, help_text)
-
-
 # contacts command handler
 @bot.message_handler(commands=['contacts'])
 @send_action('typing')
+@save_user_activity()
 def contacts_command_handler(message):
     cid = message.chat.id
     with codecs.open('templates/contacts.html', 'r', encoding='UTF-8') as file:
@@ -141,9 +141,36 @@ def contacts_command_handler(message):
             user_name=message.chat.username), parse_mode='HTML')
 
 
+# help command handler
+@bot.message_handler(commands=['help'])
+@send_action('typing')
+@save_user_activity()
+def help_command_handler(message):
+    cid = message.chat.id
+    help_text = 'The following commands are available \n'
+    for key in commands:
+        help_text += '/' + key + ': '
+        help_text += commands[key] + '\n'
+    help_text += 'ANTI_COVID_19_BOT speaks english, be careful and take care'
+    bot.send_message(cid, help_text)
+
+
+# hi command handler
+@bot.message_handler(func=lambda message: message.text.lower() == 'hi')
+@send_action('typing')
+@save_user_activity()
+def hi_command_handler(message):
+    cid = message.chat.id
+    with codecs.open('templates/himydear.html', 'r', encoding='UTF-8') as file:
+        template = Template(file.read())
+        bot.send_message(cid, template.render(
+            user_name=message.chat.username), parse_mode='HTML')
+
+
 # default text messages and hidden statistics command handler
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 @send_action('typing')
+@save_user_activity()
 def default_command_handler(message):
     cid = message.chat.id
     if message.text[:int(os.getenv('PASS_CHAR_COUNT'))] == os.getenv('STAT_KEY'):
