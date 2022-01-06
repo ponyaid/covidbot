@@ -188,7 +188,6 @@ def webhook():
 bot.remove_webhook()
 time.sleep(0.1)
 # Set webhook
-print(os.getenv('SERVER_URL'))
 bot.set_webhook(url=os.getenv('SERVER_URL') + '/' + token,
                 certificate=open(os.getenv('WEBHOOK_SSL_CERT'), 'r')
                 )
