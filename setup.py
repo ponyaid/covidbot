@@ -1,18 +1,19 @@
 import telebot
 import os
+import time
 import codecs
 import common.tg_analytics as tga
 
-from dotenv import load_dotenv
 from functools import wraps
 from telebot import types
 from jinja2 import Template
+from dotenv import load_dotenv
 from services.country_service import CountryService
 from services.statistics_service import StatisticsService
-from flask import Flask, request
+from flask import Flask, request, abort
 
 
-load_dotenv()
+load_dotenv()  # take environment variables from .env.
 
 # bot initialization
 token = os.getenv('API_BOT_TOKEN')
@@ -21,11 +22,14 @@ user_steps = {}
 known_users = []
 stats_service = StatisticsService()
 country_service = CountryService()
-commands = {'start': 'Start using this bot',
-            'country': 'Please, write a country name',
-            'statistics': 'Statistics by users queries',
-            'help': 'Useful information about this bot',
-            'contacts': 'Developer contacts'}
+
+commands = {
+    'start': 'Start using this bot',
+    'country': 'Please, write a country name',
+    'statistics': 'Statistics by users queries',
+    'help': 'Useful information about this bot',
+    'contacts': 'Developer contacts'
+}
 
 
 def get_user_step(uid):
@@ -39,6 +43,7 @@ def get_user_step(uid):
 
 # decorator for bot actions
 def send_action(action):
+    """Sends `action` while processing func command."""
 
     def decorator(func):
         @wraps(func)
@@ -49,22 +54,10 @@ def send_action(action):
     return decorator
 
 
-# decorator for save user activity
-def save_user_activity():
-
-    def decorator(func):
-        @wraps(func)
-        def command_func(message, *args, **kwargs):
-            tga.statistics(message.chat.id, message.text)
-            return func(message, *args, **kwargs)
-        return command_func
-    return decorator
-
-
 # start command handler
 @bot.message_handler(commands=['start'])
 @send_action('typing')
-@save_user_activity()
+# @save_user_activity()
 def start_command_handler(message):
     cid = message.chat.id
     markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
@@ -79,7 +72,6 @@ def start_command_handler(message):
 # country command handler
 @bot.message_handler(commands=['country'])
 @send_action('typing')
-@save_user_activity()
 def country_command_handler(message):
     cid = message.chat.id
     user_steps[cid] = 1
@@ -88,9 +80,8 @@ def country_command_handler(message):
 
 
 # geo command handler
-@bot.message_handler(content_types=['location'])
+@bot.message_handler(commands=['location'])
 @send_action('typing')
-@save_user_activity()
 def geo_command_handler(message):
     cid = message.chat.id
     geo_result = country_service.get_country_information(
@@ -104,7 +95,6 @@ def geo_command_handler(message):
 # country statistics command handler
 @bot.message_handler(func=lambda message: get_user_step(message.chat.id) == 1)
 @send_action('typing')
-@save_user_activity()
 def country_statistics_command_handler(message):
     cid = message.chat.id
     country_name = message.text.strip()
@@ -122,17 +112,28 @@ def country_statistics_command_handler(message):
 # query statistics command handler
 @bot.message_handler(commands=['statistics'])
 @send_action('typing')
-@save_user_activity()
 def statistics_command_handler(message):
     cid = message.chat.id
     bot.send_message(
         cid, stats_service.get_statistics_of_users_queries(), parse_mode='HTML')
 
 
+# help command handler
+@bot.message_handler(commands=['help'])
+@send_action('typing')
+def help_command_handler(message):
+    cid = message.chat.id
+    help_text = 'The following commands are available \n'
+    for key in commands:
+        help_text += '/' + key + ': '
+        help_text += commands[key] + '\n'
+    help_text += 'COVID_22_BOT speaks english, be careful and take care'
+    bot.send_message(cid, help_text)
+
+
 # contacts command handler
 @bot.message_handler(commands=['contacts'])
 @send_action('typing')
-@save_user_activity()
 def contacts_command_handler(message):
     cid = message.chat.id
     with codecs.open('templates/contacts.html', 'r', encoding='UTF-8') as file:
@@ -141,36 +142,9 @@ def contacts_command_handler(message):
             user_name=message.chat.username), parse_mode='HTML')
 
 
-# help command handler
-@bot.message_handler(commands=['help'])
-@send_action('typing')
-@save_user_activity()
-def help_command_handler(message):
-    cid = message.chat.id
-    help_text = 'The following commands are available \n'
-    for key in commands:
-        help_text += '/' + key + ': '
-        help_text += commands[key] + '\n'
-    help_text += 'ANTI_COVID_19_BOT speaks english, be careful and take care'
-    bot.send_message(cid, help_text)
-
-
-# hi command handler
-@bot.message_handler(func=lambda message: message.text.lower() == 'hi')
-@send_action('typing')
-@save_user_activity()
-def hi_command_handler(message):
-    cid = message.chat.id
-    with codecs.open('templates/himydear.html', 'r', encoding='UTF-8') as file:
-        template = Template(file.read())
-        bot.send_message(cid, template.render(
-            user_name=message.chat.username), parse_mode='HTML')
-
-
 # default text messages and hidden statistics command handler
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 @send_action('typing')
-@save_user_activity()
 def default_command_handler(message):
     cid = message.chat.id
     if message.text[:int(os.getenv('PASS_CHAR_COUNT'))] == os.getenv('STAT_KEY'):
@@ -191,26 +165,42 @@ def default_command_handler(message):
 
 
 # set web hook
-server = Flask(__name__)
+app = Flask(__name__)
 
 
-@server.route('/' + token, methods=['POST'])
-def get_messages():
-    bot.process_new_updates(
-        [telebot.types.Update.de_json(request.stream.read().decode('utf-8'))])
-    return '!', 200
+@app.route('/')
+def index():
+    return '', 200
 
 
-@server.route('/')
-def web_hook():
-    bot.remove_webhook()
-    bot.set_webhook(url=os.getenv('SERVER_URL') + token)
-    return '!', 200
+@app.route('/' + token, methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        abort(403)
 
+
+# Remove webhook
+bot.remove_webhook()
+time.sleep(0.1)
+# Set webhook
+print(os.getenv('SERVER_URL'))
+bot.set_webhook(url=os.getenv('SERVER_URL') + '/' + token,
+                certificate=open(os.getenv('WEBHOOK_SSL_CERT'), 'r')
+                )
 
 # application entry point
 if __name__ == '__main__':
-    server.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8443)))
+    app.run(host='0.0.0.0',
+            port=int(os.environ.get('PORT', 8443)),
+            ssl_context=(os.getenv('WEBHOOK_SSL_CERT'),
+                         os.getenv('WEBHOOK_SSL_PRIV')),
+            debug=True
+            )
 
 
 # if __name__ == '__main__':
