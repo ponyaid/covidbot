@@ -17,7 +17,10 @@ load_dotenv()  # take environment variables from .env.
 
 # bot initialization
 token = os.getenv('API_BOT_TOKEN')
+
 bot = telebot.TeleBot(token)
+app = Flask(__name__)
+
 user_steps = {}
 known_users = []
 stats_service = StatisticsService()
@@ -165,39 +168,29 @@ def default_command_handler(message):
 
 
 # set web hook
-app = Flask(__name__)
-
-
-@app.route('/')
-def index():
+@app.route('/' + token, methods=['POST'])
+def getMessage():
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
     return '', 200
 
 
-@app.route('/' + token, methods=['POST'])
+@app.route('/')
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    else:
-        abort(403)
+    bot.remove_webhook()
+    bot.set_webhook(url=os.getenv('SERVER_URL') + '/' + token,
+                    # certificate=open(os.getenv('WEBHOOK_SSL_CERT'), 'r')
+                    )
+    return '', 200
 
-
-# Remove webhook
-bot.remove_webhook()
-time.sleep(0.1)
-# Set webhook
-bot.set_webhook(url=os.getenv('SERVER_URL') + '/' + token,
-                certificate=open(os.getenv('WEBHOOK_SSL_CERT'), 'r')
-                )
 
 # application entry point
 if __name__ == '__main__':
     app.run(host='0.0.0.0',
             port=int(os.environ.get('PORT', 8443)),
-            ssl_context=(os.getenv('WEBHOOK_SSL_CERT'),
-                         os.getenv('WEBHOOK_SSL_PRIV')),
+            # ssl_context=(os.getenv('WEBHOOK_SSL_CERT'),
+            #  os.getenv('WEBHOOK_SSL_PRIV')),
             debug=True
             )
 
